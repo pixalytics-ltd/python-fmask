@@ -118,7 +118,12 @@ def makeStacksAndAngles(cmdargs):
     # we need to find the 'SPACECRAFT_ID' to work out the wildcards to use
     mtlInfo = config.readMTLFile(cmdargs.mtl)
     landsat = mtlInfo['SPACECRAFT_ID'][-1]
+    sensor = mtlInfo['SENSOR_ID']
     
+    if int(landsat) < 4:
+        refWildcard = 'L*_B[4,5,6,7].TIF'        
+    elif sensor == 'MSS':
+        refWildcard = 'L*_B[1,2,3,4].TIF'
     if landsat == '4' or landsat == '5':
         refWildcard = 'L*_B[1,2,3,4,5,7].TIF'
         thermalWildcard = 'L*_B6.TIF'
@@ -138,7 +143,7 @@ def makeStacksAndAngles(cmdargs):
 
     wldpath = os.path.join(cmdargs.scenedir, thermalWildcard)
     thermalFiles = sorted(glob.glob(wldpath))
-    if len(thermalFiles) == 0:
+    if len(thermalFiles) == 0 and sensor != 'MSS':
         raise fmaskerrors.FmaskFileError("Cannot find expected thermal files for sensor")
 
     # We need to turn off exceptions while using gdal_merge, as it doesn't cope

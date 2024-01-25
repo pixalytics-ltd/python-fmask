@@ -59,26 +59,40 @@ BAND_NUM_DICT = {'LANDSAT_4': (1, 2, 3, 4, 5, 7),
     'LANDSAT_8': (1, 2, 3, 4, 5, 6, 7, 9),
     'LANDSAT_9': (1, 2, 3, 4, 5, 6, 7, 9)}
 
+BAND_NUM_DICT_MSS = {'LANDSAT_1': (4, 5, 6, 7),
+    'LANDSAT_5': (1, 2, 3, 4)}
 
 def readGainsOffsets(mtlInfo):
     """
     Read the gains and offsets out of the .MTL file
     """
     spaceCraft = mtlInfo['SPACECRAFT_ID']
-    nbands = len(BAND_NUM_DICT[spaceCraft])
+    sensor = mtlInfo['SENSOR_ID']
+    if sensor == 'MSS':
+        nbands = 4
+        bands = BAND_NUM_DICT_MSS[spaceCraft]
+    else:
+        nbands = len(BAND_NUM_DICT[spaceCraft])
+        bands = BAND_NUM_DICT[spaceCraft]
 
     gains = numpy.zeros(nbands)
     offsets = numpy.zeros(nbands)
     
     if (RADIANCE_MULT % 1) in mtlInfo:
         # Newer format for MTL file
-        for idx, band in enumerate(BAND_NUM_DICT[spaceCraft]):
+        for idx, band in enumerate(bands):
             s = RADIANCE_MULT % band
-            gain = float(mtlInfo[s])
+            try:
+                gain = float(mtlInfo[s])
+            except:
+                gain = 1.0 # Capture Null
             gains[idx] = gain
 
             s = RADIANCE_ADD % band
-            offset = float(mtlInfo[s])
+            try:
+                offset = float(mtlInfo[s])
+            except:
+                offset = 0.0 # Capture Null
             offsets[idx] = offset
     else:
         # Old format, calculate gain and offset from min/max values

@@ -225,6 +225,7 @@ def sunAnglesForExtent(imgInfo, mtlInfo):
 
     """
     cornerLatLong = imgInfo.getCorners(outEPSG=4326)
+    print("Corners: {}".format(cornerLatLong))
     (ul_long, ul_lat, ur_long, ur_lat, lr_long, lr_lat, ll_long, ll_lat) = cornerLatLong
     pts = numpy.array([
         [ul_long, ul_lat],
