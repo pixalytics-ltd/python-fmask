@@ -22,10 +22,13 @@ values from USGS to Top of Atmosphere (TOA) reflectance (\*1000).
 from __future__ import print_function, division
 
 import numpy
+import numpy as np
 from osgeo import gdal
 from rios import applier, cuiprogress, fileinfo
 from . import config
 
+# MSS
+LANDSAT_MSS_ESUN = [1848., 1588., 1235., 856.6]
 # Derived by Pete Bunting from 6S
 LANDSAT8_ESUN = [1876.61, 1970.03, 1848.9, 1571.3, 967.66, 245.73, 82.03, 361.72]
 # From Chander, G., Markham, B.L., Helder, D.L. (2008)
@@ -41,7 +44,8 @@ ESUN_LOOKUP = {'LANDSAT_4': LANDSAT4_ESUN,
             'LANDSAT_5': LANDSAT5_ESUN,
             'LANDSAT_7': LANDSAT7_ESUN,
             'LANDSAT_8': LANDSAT8_ESUN,
-            'LANDSAT_9': LANDSAT9_ESUN}
+            'LANDSAT_9': LANDSAT9_ESUN,
+            'MSS': LANDSAT_MSS_ESUN}
 
 RADIANCE_MULT = 'RADIANCE_MULT_BAND_%d'
 RADIANCE_ADD = 'RADIANCE_ADD_BAND_%d'
@@ -68,17 +72,21 @@ def readGainsOffsets(mtlInfo):
     """
     spaceCraft = mtlInfo['SPACECRAFT_ID']
     sensor = mtlInfo['SENSOR_ID']
+
     if sensor == 'MSS':
         nbands = 4
         bands = BAND_NUM_DICT_MSS[spaceCraft]
     else:
         nbands = len(BAND_NUM_DICT[spaceCraft])
         bands = BAND_NUM_DICT[spaceCraft]
+    
+    # Band to start extracting first
+    minband = np.nanmin(bands)
 
     gains = numpy.zeros(nbands)
     offsets = numpy.zeros(nbands)
     
-    if (RADIANCE_MULT % 1) in mtlInfo:
+    if (RADIANCE_MULT % minband) in mtlInfo:
         # Newer format for MTL file
         for idx, band in enumerate(bands):
             s = RADIANCE_MULT % band
@@ -95,8 +103,9 @@ def readGainsOffsets(mtlInfo):
                 offset = 0.0  # Capture Null
             offsets[idx] = offset
     else:
+
         # Old format, calculate gain and offset from min/max values
-        for (idx, band) in enumerate(BAND_NUM_DICT[spaceCraft]):
+        for (idx, band) in enumerate(bands):
             lMax = float(mtlInfo[LMAX_KEY % band])
             lMin = float(mtlInfo[LMIN_KEY % band])
             qcalMax = float(mtlInfo[QCALMAX_KEY % band])
@@ -183,6 +192,7 @@ def makeTOAReflectance(infile, mtlFile, anglesfile, outfile):
     """
     mtlInfo = config.readMTLFile(mtlFile)
     spaceCraft = mtlInfo['SPACECRAFT_ID']
+    sensor = mtlInfo['SENSOR_ID']
     date = mtlInfo['DATE_ACQUIRED']
     date = date.replace('-', '')
     
@@ -196,7 +206,10 @@ def makeTOAReflectance(infile, mtlFile, anglesfile, outfile):
     otherinputs = applier.OtherInputs()
     otherinputs.earthSunDistance = earthSunDistance(date)
     otherinputs.earthSunDistanceSq = otherinputs.earthSunDistance * otherinputs.earthSunDistance
-    otherinputs.esun = ESUN_LOOKUP[spaceCraft]
+    if sensor == 'MSS':
+        otherinputs.esun = ESUN_LOOKUP[sensor]
+    else:
+        otherinputs.esun = ESUN_LOOKUP[spaceCraft]
     gains, offsets = readGainsOffsets(mtlInfo)
     otherinputs.gains = gains
     otherinputs.offsets = offsets

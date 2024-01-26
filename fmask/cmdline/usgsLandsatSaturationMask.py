@@ -53,8 +53,11 @@ def makeSaturationMask(mtlfile, infile, outfile):
     """
     mtlInfo = config.readMTLFile(mtlfile)
     landsat = mtlInfo['SPACECRAFT_ID'][-1]
+    sensor = mtlInfo['SENSOR_ID']
     
-    if landsat == '4':
+    if sensor == 'MSS':
+        sensor = config.FMASK_LANDSATMSS
+    elif landsat == '4':
         sensor = config.FMASK_LANDSAT47
     elif landsat == '5':
         sensor = config.FMASK_LANDSAT47
