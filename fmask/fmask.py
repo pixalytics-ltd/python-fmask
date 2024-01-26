@@ -285,8 +285,12 @@ def doPotentialCloudFirstPass(fmaskFilenames, fmaskConfig, missingThermal):
     
     # Which reflective bands do we use to make a null mask. The numbers being set here 
     # are zero-based index numbers for use as array indexes. It should be just all bands, 
-    # but because of the Sentinel-2 madness, we have to make special cases. 
-    if fmaskConfig.sensor == config.FMASK_LANDSAT47:
+    # but because of the Sentinel-2 madness, we have to make special cases.
+    
+    if fmaskConfig.sensor == config.FMASK_LANDSATMSS: # MSS, use only RGB bands
+        nullBandNdx = [config.BAND_BLUE, config.BAND_GREEN, config.BAND_RED]
+
+    elif fmaskConfig.sensor == config.FMASK_LANDSAT47:
         nullBandNdx = [config.BAND_BLUE, config.BAND_GREEN, config.BAND_RED, config.BAND_NIR, 
             config.BAND_SWIR1, config.BAND_SWIR2]
 

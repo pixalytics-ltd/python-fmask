@@ -36,6 +36,8 @@ FMASK_SENTINEL2 = 2
 "Sentinel 2"
 FMASK_LANDSATOLI = 3
 "Landsat OLI"
+FMASK_LANDSATMSS = 4
+"Landsat MSS"
 
 """
 Some constants for the various reflective bands used in fmask.
@@ -118,7 +120,10 @@ class FmaskConfig(object):
         # Some standard file configurations for different sensors.
         # Assumed that panchromatic + thermal bands stored in separate files.
         # zero based indexing
-        if sensor == FMASK_LANDSAT47:
+        if sensor == FMASK_LANDSATMSS:
+            self.bands = {BAND_BLUE: 0, BAND_GREEN: 1, BAND_RED: 2, BAND_NIR: 3,
+                BAND_SWIR1: 3, BAND_SWIR2: 3}
+        elif sensor == FMASK_LANDSAT47:
             self.bands = {BAND_BLUE: 0, BAND_GREEN: 1, BAND_RED: 2, BAND_NIR: 3,
                 BAND_SWIR1: 4, BAND_SWIR2: 5}
         elif sensor in (FMASK_LANDSAT8, FMASK_LANDSATOLI):
