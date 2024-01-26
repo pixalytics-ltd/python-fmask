@@ -81,6 +81,10 @@ class FmaskConfig(object):
     tempDir = '.'
     TOARefScaling = 10000.0
     TOARefDNoffsetDict = None
+
+    # ESA Landsat product
+    esa = False
+
     # Minimum number of pixels in a single cloud (before buffering). A non-zero value
     # would allow filtering of very small clouds. 
     minCloudSize_pixels = 0
@@ -412,13 +416,15 @@ class FmaskFilenames(object):
     thermal = None
     saturationMask = None
     outputMask = None
+    qaMask = None
     
     def __init__(self, toaRefFile=None, thermalFile=None, outputMask=None,
-                saturationMask=None):
+                saturationMask=None, qaMask=None):
         self.toaRef = toaRefFile
         self.thermal = thermalFile
         self.saturationMask = saturationMask
         self.outputMask = outputMask
+        self.qaMask = qaMask
     
     def setThermalFile(self, thermalFile):
         """
@@ -472,7 +478,25 @@ class FmaskFilenames(object):
         
         """
         self.saturationMask = mask
-    
+
+    def setQAMask(self, mask):
+        """
+        Set the mask to use for ignoring anomalous pixels.
+
+        Use the :func:`fmask.qa.makeQAMask` function to
+        create this from input QA band data.
+
+        This mask should be 1 for pixels that are saturated, 0 otherwise.
+
+        Note that this is not in the original paper so cannot be considered
+        'strict', but if provided is used no matter the strict setting in
+        :class:`fmask.config.FmaskConfig`.
+
+        This file should be in any GDAL readable format.
+
+        """
+        self.qaMask = mask
+
     def setOutputCloudMaskFile(self, cloudMask):
         """
         Set the output cloud mask path. 

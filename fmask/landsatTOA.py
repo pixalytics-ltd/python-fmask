@@ -79,7 +79,7 @@ def readGainsOffsets(mtlInfo):
     else:
         nbands = len(BAND_NUM_DICT[spaceCraft])
         bands = BAND_NUM_DICT[spaceCraft]
-    
+
     # Band to start extracting first
     minband = np.nanmin(bands)
 

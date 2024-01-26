@@ -25,7 +25,7 @@ import glob
 import argparse
 import tempfile
 from fmask import landsatTOA
-from fmask.cmdline import usgsLandsatMakeAnglesImage, usgsLandsatSaturationMask
+from fmask.cmdline import usgsLandsatMakeAnglesImage, usgsLandsatSaturationMask, usgsLandsatQAMask
 from fmask import config
 from fmask import fmaskerrors
 from fmask import fmask
@@ -150,6 +150,11 @@ def makeStacksAndAngles(cmdargs):
     if len(thermalFiles) == 0 and sensor != 'MSS':
         raise fmaskerrors.FmaskFileError("Cannot find expected thermal files for sensor")
 
+    wldpath = os.path.join(cmdargs.scenedir, 'L*_QA_PIXEL.TIF')
+    QAFiles = sorted(glob.glob(wldpath))
+    if len(QAFiles) == 0:
+        raise fmaskerrors.FmaskFileError("Cannot find expected QA file for sensor")
+
     # We need to turn off exceptions while using gdal_merge, as it doesn't cope
     usingExceptions = gdal.GetUseExceptions()
 
@@ -199,6 +204,15 @@ def makeStacksAndAngles(cmdargs):
     os.close(fd)
     usgsLandsatSaturationMask.makeSaturationMask(cmdargs.mtl, tmpRefStack, saturationfile)
     cmdargs.saturation = saturationfile
+
+    # QA band to remove erroneous pixels
+    if cmdargs.verbose:
+        print("Creating QA file")
+    (fd, qafile) = tempfile.mkstemp(dir=cmdargs.tempdir, prefix="qa_tmp_",
+                                            suffix=".img")
+    os.close(fd)
+    usgsLandsatQAMask.makeQAMask(cmdargs.mtl, QAFiles[0], qafile)
+    cmdargs.qa = qafile
 
     # TOA
     if cmdargs.verbose:

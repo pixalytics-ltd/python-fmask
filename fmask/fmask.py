@@ -252,7 +252,11 @@ def doPotentialCloudFirstPass(fmaskFilenames, fmaskConfig, missingThermal):
         infiles.saturationMask = fmaskFilenames.saturationMask
     elif fmaskConfig.verbose:
         print('Saturation mask not supplied - saturated areas may not be detected')
-    
+    if fmaskFilenames.qaMask is not None:
+        infiles.qaMask = fmaskFilenames.qaMask
+    elif fmaskConfig.verbose:
+        print('QA mask not supplied - anomolous pixels may influence the result')
+
     (fd, outfiles.pass1) = tempfile.mkstemp(prefix='pass1', dir=fmaskConfig.tempDir, 
                                 suffix=fmaskConfig.defaultExtension)
     os.close(fd)
@@ -334,7 +338,19 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     """
     fmaskConfig = otherargs.fmaskConfig
 
+    # An extra step, applying the QA band of Landsat to remove anomalous pixels
+    if hasattr(inputs, 'qaMask'):
+        mask = (inputs.qaMask != 0).any(axis=0)
+
+        # broadcast 2D mask to shape of 3D array and apply
+        tmp = numpy.zeros(mask.shape)
+        for band in range(inputs.toaref.shape[0]):
+            tmp[:,:] = inputs.toaref[band,:,:]
+            tmp[mask > 0] = otherargs.refNull
+            inputs.toaref[band,:, :] = tmp[:,:]
+
     ref = refDNtoUnits(inputs.toaref, fmaskConfig)
+
     # Clamp off any reflectance <= 0
     ref[ref<=0] = 0.00001
 
@@ -798,6 +814,7 @@ def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17):
         nullval = 0
     # Sentinel2 is uint16 which causes problems...
     scaledNIR = band.ReadAsArray().astype(numpy.int16)
+    
     # Check for ESA's stoopid offset, for NIR band only
     NIRoffset = 0
     if (fmaskConfig.TOARefDNoffsetDict is not None and 
