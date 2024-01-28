@@ -350,7 +350,6 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
             inputs.toaref[band,:, :] = tmp[:,:]
 
     ref = refDNtoUnits(inputs.toaref, fmaskConfig)
-
     # Clamp off any reflectance <= 0
     ref[ref<=0] = 0.00001
 
@@ -814,7 +813,16 @@ def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17):
         nullval = 0
     # Sentinel2 is uint16 which causes problems...
     scaledNIR = band.ReadAsArray().astype(numpy.int16)
-    
+
+    # An extra step, applying the QA band of Landsat to remove anomalous pixels
+    if fmaskFilenames.qaMask is not None:
+        dsqa = gdal.Open(fmaskFilenames.qaMask)
+        qaBand = dsqa.GetRasterBand(1).ReadAsArray()
+
+        # apply mask to NIR array
+        refImgInfo = fileinfo.ImageInfo(fmaskFilenames.toaRef)
+        scaledNIR[qaBand > 0] = refImgInfo.nodataval[0]
+
     # Check for ESA's stoopid offset, for NIR band only
     NIRoffset = 0
     if (fmaskConfig.TOARefDNoffsetDict is not None and 
