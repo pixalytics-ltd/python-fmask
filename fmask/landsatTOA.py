@@ -64,6 +64,7 @@ BAND_NUM_DICT = {'LANDSAT_4': (1, 2, 3, 4, 5, 7),
     'LANDSAT_9': (1, 2, 3, 4, 5, 6, 7, 9)}
 
 BAND_NUM_DICT_MSS = {'LANDSAT_1': (4, 5, 6, 7),
+    'LANDSAT_3': (4, 5, 6, 7),
     'LANDSAT_5': (1, 2, 3, 4)}
 
 def readGainsOffsets(mtlInfo):
