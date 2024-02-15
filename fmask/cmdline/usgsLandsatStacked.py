@@ -150,7 +150,7 @@ def makeStacksAndAngles(cmdargs):
     if len(thermalFiles) == 0 and sensor != 'MSS':
         raise fmaskerrors.FmaskFileError("Cannot find expected thermal files for sensor")
 
-    wldpath = os.path.join(cmdargs.scenedir, 'L*_QA_PIXEL.TIF')
+    wldpath = os.path.join(cmdargs.scenedir, 'L*QA*.TIF')
     QAFiles = sorted(glob.glob(wldpath))
     if len(QAFiles) == 0:
         raise fmaskerrors.FmaskFileError("Cannot find expected QA file for sensor")

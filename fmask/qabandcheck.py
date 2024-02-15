@@ -36,12 +36,16 @@ def makeQAMask(fmaskConfig, QAFile, outMask):
     """
     inputs = applier.FilenameAssociations()
     inputs.qa = QAFile
-    
+
     outputs = applier.FilenameAssociations()
     outputs.mask = outMask
     
     otherargs = applier.OtherInputs()
     otherargs.esa = fmaskConfig.esa
+    if "BQA.TIF" in QAFile:
+        otherargs.esa = True
+    else:
+        otherargs.esa = False
 
     controls = applier.ApplierControls()
     controls.progress = cuiprogress.GDALProgressBar()
@@ -67,7 +71,14 @@ def riosQAMask(info, inputs, outputs, otherargs):
     # Set mask for any flagged issues
     # See https://www.usgs.gov/landsat-missions/landsat-collection-2-quality-assessment-bands
 
-    ## Dropped pixels
-    mask = find_bits(inputs.qa, 9, 9)
+
+    if otherargs.esa:
+        #print("Running for ESA QA band")
+        ## Dropped Pixels
+        mask = find_bits(inputs.qa, 1, 1)
+    else:
+        #print("Running for USGS QA band")
+        ## Dropped pixels
+        mask = find_bits(inputs.qa, 9, 9)
     outputs.mask[mask == 1] = 1
 
