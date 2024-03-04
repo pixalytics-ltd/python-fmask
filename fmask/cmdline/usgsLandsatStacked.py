@@ -23,9 +23,11 @@ from __future__ import print_function, division
 import os
 import glob
 import argparse
+import shutil
 import tempfile
+import numpy
 from fmask import landsatTOA
-from fmask.cmdline import usgsLandsatMakeAnglesImage, usgsLandsatSaturationMask, usgsLandsatQAMask
+from fmask.cmdline import usgsLandsatMakeAnglesImage, usgsLandsatSaturationMask, usgsLandsatQAMask, usgsLandsatMakeDEMImage
 from fmask import config
 from fmask import fmaskerrors
 from fmask import fmask
@@ -33,7 +35,7 @@ from fmask import fmask
 from osgeo_utils import gdal_merge
 from osgeo import gdal
 
-from rios import fileinfo
+from rios import fileinfo, applier
 from rios.imagewriter import DEFAULTDRIVERNAME, dfltDriverOptions
 
 # for GDAL.
@@ -55,8 +57,10 @@ def getCmdargs():
     parser.add_argument('-m', '--mtl', help='Input .MTL file')
     parser.add_argument('-s', '--saturation', 
         help='Input saturation mask (see fmask_usgsLandsatSaturationMask.py)')
-    parser.add_argument("-z", "--anglesfile", 
+    parser.add_argument("-z", "--anglesfile",
         help="Image of sun and satellite angles (see fmask_usgsLandsatMakeAnglesImage.py)")
+    parser.add_argument("-d", "--demfile",
+        help="Image of DEM (see fmask_usgsLandsatMakeDEMImage.py)")
     parser.add_argument('-o', '--output', dest='output',
         help='output cloud mask')
     parser.add_argument('-v', '--verbose', default=False,
@@ -98,6 +102,33 @@ def getCmdargs():
 
     return cmdargs
 
+def adjustMSS(instack, dir):
+    """
+    Apply scaling and offset using rios to create TM equivalent values
+    """
+
+    def rescale(info, inputs, outputs, otherargs):
+        image_data = numpy.array(inputs.img, dtype=numpy.float32, copy=True)
+        for i in range(inputs.img.shape[0]):
+            image_data[i,:,:] = image_data[i,:,:] * otherargs.scale[i] + otherargs.offset[i]
+        outputs.img = image_data
+
+    otherargs = applier.OtherInputs()
+    # From Helder et al 2012 10.1109/TGRS.2011.2171351, Table XX Landsat-5 MSS to TM
+    otherargs.scale = [0.824, 0.914, 0.948, 0.955]
+    otherargs.offset = [0., 0., 0., 0.]
+
+    # Set up input and output filenames.
+    tmpstack = os.path.join(dir, "tmpstack.img")
+    shutil.copy(instack, tmpstack)
+    infiles = applier.FilenameAssociations()
+    infiles.img = tmpstack
+
+    outfiles = applier.FilenameAssociations()
+    outfiles.img = instack
+
+    # Apply scaling
+    applier.apply(rescale, infiles, outfiles, otherargs)
 
 def makeStacksAndAngles(cmdargs):
     """
@@ -172,6 +203,21 @@ def makeStacksAndAngles(cmdargs):
 
     # stash so we can delete later
     cmdargs.refstack = tmpRefStack
+
+    if sensor == 'MSS':
+        # Apply radiometric conversion for MSS data
+        if cmdargs.verbose:
+            print("Applying MSS radiometric conversion")
+        adjustMSS(tmpRefStack,dir=cmdargs.tempdir)
+
+        # now the DEM
+        if cmdargs.verbose:
+            print("Creating DEM file")
+        (fd, demfile) = tempfile.mkstemp(dir=cmdargs.tempdir, prefix="dem_tmp_",
+                                            suffix=".img")
+        os.close(fd)
+        usgsLandsatMakeDEMImage.makeDEM(cmdargs.mtl, tmpRefStack, demfile)
+        cmdargs.demfile = demfile
 
     if cmdargs.verbose:
         print("Making stack of all thermal bands")

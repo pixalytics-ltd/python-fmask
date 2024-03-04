@@ -53,6 +53,9 @@ from osgeo import gdal
 from scipy.ndimage import uniform_filter, maximum_filter, label
 import scipy.stats
 
+# Slope calculation
+import richdem as rd
+
 # We use RIOS intensively here
 from rios import applier
 from rios import pixelgrid
@@ -349,6 +352,20 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
             tmp[mask > 0] = otherargs.refNull
             inputs.toaref[band,:, :] = tmp[:,:]
 
+    # An extra step, applying the QA band of Landsat to remove anomalous pixels
+    if hasattr(inputs, 'dem'):
+        nodata = -32768
+        dem = (inputs.dem != nodata).any(axis=0)
+        rda = rd.rdarray(DEM, no_data=nodata)
+        rd.FillDepressions(rda, in_place=True)
+        slope = rd.TerrainAttribute(rda, attrib='slope_percentage')
+        del rda
+        slope[slope > 100.0] = 100.0
+        slope[slope == -9999.0] = 0.0
+        print("Slope[{}]: {:.3f} {:.3f}".format(slope.shape,np.nanmin(slope[slope > nodata]),np.nanmax(slope)))
+
+
+
     ref = refDNtoUnits(inputs.toaref, fmaskConfig)
     # Clamp off any reflectance <= 0
     ref[ref<=0] = 0.00001
@@ -468,10 +485,12 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     
     # Equation 20
     # In two parts, in case we are missing thermal
-    snowmask = ((ndsi > 0.15) & (ref[nir] > fmaskConfig.Eqn20NirSnowThresh) & 
+    snowmask = ((ndsi > 0.15) & (ref[nir] > fmaskConfig.Eqn20NirSnowThresh) &
         (ref[green] > fmaskConfig.Eqn20GreenSnowThresh))
     if hasattr(inputs, 'thermal'):
         snowmask = snowmask & (bt < fmaskConfig.Eqn20ThermThresh)
+    elif fmaskConfig.sensor == config.FMASK_LANDSATMSS: # MSS adjustment
+        snowmask = ((ndsi > 0.07) & (ref[swir1] < 0.8))# & (waterTest is False))
     snowmask[nullmask] = False
     
     # Output the pcp and water test layers. 
