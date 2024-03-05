@@ -123,6 +123,9 @@ def doFmask(fmaskFilenames, fmaskConfig):
                 print('Ignoring thermal data since file is empty')
             missingThermal = True
 
+    # do we have DEM data?
+    missingDEM = fmaskFilenames.dem is None
+
     # do some basic checking of inputs
     if fmaskFilenames.toaRef is None:
         msg = 'Must provide input TOA reflectance file via fmaskFilenames parameter'
@@ -158,7 +161,7 @@ def doFmask(fmaskFilenames, fmaskConfig):
     if fmaskConfig.verbose:
         print("Cloud layer, pass 1")
     (pass1file, Twater, Tlow, Thigh, NIR_17, nonNullCount) = doPotentialCloudFirstPass(
-        fmaskFilenames, fmaskConfig, missingThermal)
+        fmaskFilenames, fmaskConfig, missingThermal, missingDEM)
     if fmaskConfig.verbose:
         print("  Twater=", Twater, "Tlow=", Tlow, "Thigh=", Thigh, "NIR_17=", 
             NIR_17, "nonNullCount=", nonNullCount)
@@ -236,7 +239,7 @@ B4_SCALE = 500.0
 RIOS_WINDOW_SIZE = 512
 
 
-def doPotentialCloudFirstPass(fmaskFilenames, fmaskConfig, missingThermal):
+def doPotentialCloudFirstPass(fmaskFilenames, fmaskConfig, missingThermal, missingDEM):
     """
     Run the first pass of the potential cloud layer. Also
     finds the temperature thresholds which will be needed 
@@ -251,6 +254,8 @@ def doPotentialCloudFirstPass(fmaskFilenames, fmaskConfig, missingThermal):
     infiles.toaref = fmaskFilenames.toaRef
     if not missingThermal:
         infiles.thermal = fmaskFilenames.thermal
+    if not missingDEM:
+        infiles.dem = fmaskFilenames.dem
     if fmaskFilenames.saturationMask is not None:
         infiles.saturationMask = fmaskFilenames.saturationMask
     elif fmaskConfig.verbose:
@@ -351,20 +356,26 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
             tmp[:,:] = inputs.toaref[band,:,:]
             tmp[mask > 0] = otherargs.refNull
             inputs.toaref[band,:, :] = tmp[:,:]
-
-    # An extra step, applying the QA band of Landsat to remove anomalous pixels
+        del tmp
+        
+    # An extra step, calculating the slope from the DEM
     if hasattr(inputs, 'dem'):
         nodata = -32768
-        dem = (inputs.dem != nodata).any(axis=0)
-        rda = rd.rdarray(DEM, no_data=nodata)
+        dem = numpy.zeros(mask.shape)
+        dem[:,:] = inputs.dem[0,:,:]
+        print("{} DEM: {} {}".format(dem.shape, numpy.nanmin(dem), numpy.nanmax(dem)))
+        rda = rd.rdarray(dem, no_data=nodata)
+        # top left x, x resolution, rotations, top left y, rotation, y resolution
+        rda.geotransform = [0., 60., 0., 0., 0., 60.]
         rd.FillDepressions(rda, in_place=True)
         slope = rd.TerrainAttribute(rda, attrib='slope_percentage')
         del rda
         slope[slope > 100.0] = 100.0
         slope[slope == -9999.0] = 0.0
-        print("Slope[{}]: {:.3f} {:.3f}".format(slope.shape,np.nanmin(slope[slope > nodata]),np.nanmax(slope)))
-
-
+        print("Slope[{}]: {:.3f} {:.3f}".format(slope.shape,numpy.nanmin(slope[slope > nodata]),numpy.nanmax(slope)))
+        del dem
+    else:
+        slope = numpy.zeros(mask.shape)
 
     ref = refDNtoUnits(inputs.toaref, fmaskConfig)
     # Clamp off any reflectance <= 0
@@ -415,10 +426,10 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     
     # Equation 5
     ## Added further criteria to prevent the detection of missing data
-    waterTest = numpy.logical_and(numpy.logical_or(
+    waterTest = numpy.logical_and(numpy.logical_and(numpy.logical_or(
         numpy.logical_and(ndvi < 0.01, ref[nir] < 0.11),
         numpy.logical_and(ndvi < 0.1, ref[nir] < 0.05)
-    ), meanVis > 0.01)
+    ), meanVis > 0.01), slope < 0.5)
 
     waterTest[nullmask] = False
     
@@ -490,7 +501,7 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     if hasattr(inputs, 'thermal'):
         snowmask = snowmask & (bt < fmaskConfig.Eqn20ThermThresh)
     elif fmaskConfig.sensor == config.FMASK_LANDSATMSS: # MSS adjustment
-        snowmask = ((ndsi > 0.07) & (ref[swir1] < 0.8))# & (waterTest is False))
+        snowmask = ((ndsi > 0.07) & (ref[swir1] < 0.8) & (waterTest is False))
     snowmask[nullmask] = False
     
     # Output the pcp and water test layers. 

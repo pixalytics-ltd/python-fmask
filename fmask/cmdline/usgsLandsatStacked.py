@@ -216,8 +216,11 @@ def makeStacksAndAngles(cmdargs):
         (fd, demfile) = tempfile.mkstemp(dir=cmdargs.tempdir, prefix="dem_tmp_",
                                             suffix=".img")
         os.close(fd)
+        tempdem = os.path.join(cmdargs.tempdir, 'DEM_SRTM.tif')
+        if os.path.exists(tempdem):
+            os.remove(tempdem)
         usgsLandsatMakeDEMImage.makeDEM(cmdargs.mtl, tmpRefStack, demfile)
-        cmdargs.demfile = demfile
+        cmdargs.dem = demfile
 
     if cmdargs.verbose:
         print("Making stack of all thermal bands")

@@ -72,19 +72,20 @@ def makeDEM(info, inputs, outputs, otherargs):
 
     # Convert to lat/lon
     p1 = pyproj.Proj(otherargs.proj, preserve_units=True)
-    (LatMin, LonMin) = p1(xMin, yMin, inverse=True)
-    (LatMax, LonMax) = p1(xMax, yMax, inverse=True)
+    (LonMin, LatMin) = p1(xMin, yMin, inverse=True)
+    (LonMax, LatMax) = p1(xMax, yMax, inverse=True)
     #print("Extracting DEM for: {:.3f}:{:.3f} {:.3f}:{:.3f}".format(LonMin, LonMax, LatMin, LatMax))
 
     # clip the SRTM1 30m DEM and save it to a temp tif file
-    temptif = os.path.join(os.path.dirname(otherargs.file), 'DEM_temp.tif')
-    # 'left bottom right top' order
-    elevation.clip(bounds=(LonMin, LatMin, LonMax, LatMax), product='SRTM3', output=temptif)
-    # clean up stale temporary files and fix the cache in the event of a server error
-    elevation.clean()
+    tempdem = os.path.join(os.path.dirname(otherargs.file), 'DEM_SRTM.tif')
+    if not os.path.exists(tempdem):
+        # 'left bottom right top' order
+        elevation.clip(bounds=(LonMin, LatMin, LonMax, LatMax), product='SRTM3', output=tempdem)
+        # clean up stale temporary files and fix the cache in the event of a server error
+        elevation.clean()
 
     # Load temptif into numpy array
-    ds = gdal.Open(temptif, gdal.GA_ReadOnly)
+    ds = gdal.Open(tempdem, gdal.GA_ReadOnly)
     rb = ds.GetRasterBand(1)
     img_array = rb.ReadAsArray()
     #print("{} DEM: {} {}".format(inputs.img.shape,numpy.nanmin(img_array), numpy.nanmax(img_array)))

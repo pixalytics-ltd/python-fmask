@@ -414,14 +414,16 @@ class FmaskFilenames(object):
     """
     toaRef = None
     thermal = None
+    dem = None
     saturationMask = None
     outputMask = None
     qaMask = None
     
-    def __init__(self, toaRefFile=None, thermalFile=None, outputMask=None,
+    def __init__(self, toaRefFile=None, thermalFile=None, demFile=None, outputMask=None,
                 saturationMask=None, qaMask=None):
         self.toaRef = toaRefFile
         self.thermal = thermalFile
+        self.dem = demFile
         self.saturationMask = saturationMask
         self.outputMask = outputMask
         self.qaMask = qaMask
@@ -496,6 +498,18 @@ class FmaskFilenames(object):
 
         """
         self.qaMask = mask
+
+    def setDEMFile(self, demFile):
+        """
+        Set the demFile to use for in masking.
+
+        Use the :func:`fmask.dem.makeDEM` function to
+        create this from input DEM data.
+
+        This file should be in any GDAL readable format.
+
+        """
+        self.dem = demFile
 
     def setOutputCloudMaskFile(self, cloudMask):
         """
