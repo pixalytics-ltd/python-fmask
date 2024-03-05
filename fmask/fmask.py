@@ -359,23 +359,23 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
         del tmp
         
     # An extra step, calculating the slope from the DEM
+    slope = numpy.zeros(mask.shape)
     if hasattr(inputs, 'dem'):
         nodata = -32768
         dem = numpy.zeros(mask.shape)
         dem[:,:] = inputs.dem[0,:,:]
-        print("{} DEM: {} {}".format(dem.shape, numpy.nanmin(dem), numpy.nanmax(dem)))
-        rda = rd.rdarray(dem, no_data=nodata)
-        # top left x, x resolution, rotations, top left y, rotation, y resolution
-        rda.geotransform = [0., 60., 0., 0., 0., 60.]
-        rd.FillDepressions(rda, in_place=True)
-        slope = rd.TerrainAttribute(rda, attrib='slope_percentage')
-        del rda
-        slope[slope > 100.0] = 100.0
-        slope[slope == -9999.0] = 0.0
-        print("Slope[{}]: {:.3f} {:.3f}".format(slope.shape,numpy.nanmin(slope[slope > nodata]),numpy.nanmax(slope)))
-        del dem
-    else:
-        slope = numpy.zeros(mask.shape)
+        if numpy.nanmax(dem) > nodata:
+            print("{} DEM: {} {}".format(dem.shape, numpy.nanmin(dem), numpy.nanmax(dem)))
+            rda = rd.rdarray(dem, no_data=nodata)
+            # top left x, x resolution, rotations, top left y, rotation, y resolution
+            rda.geotransform = [0., 60., 0., 0., 0., 60.]
+            rd.FillDepressions(rda, in_place=True)
+            slope = rd.TerrainAttribute(rda, attrib='slope_percentage')
+            del rda
+            slope[slope > 100.0] = 100.0
+            slope[slope == -9999.0] = 0.0
+            print("Slope[{}]: {:.3f} {:.3f}".format(slope.shape,numpy.nanmin(slope[slope > nodata]),numpy.nanmax(slope)))
+            del dem
 
     ref = refDNtoUnits(inputs.toaref, fmaskConfig)
     # Clamp off any reflectance <= 0

@@ -217,8 +217,8 @@ def makeStacksAndAngles(cmdargs):
                                             suffix=".img")
         os.close(fd)
         tempdem = os.path.join(cmdargs.tempdir, 'DEM_SRTM.tif')
-        if os.path.exists(tempdem):
-            os.remove(tempdem)
+        #if os.path.exists(tempdem):
+        #    os.remove(tempdem)
         usgsLandsatMakeDEMImage.makeDEM(cmdargs.mtl, tmpRefStack, demfile)
         cmdargs.dem = demfile
 

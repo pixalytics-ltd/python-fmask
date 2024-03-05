@@ -71,49 +71,65 @@ def makeDEM(info, inputs, outputs, otherargs):
     # Extract corners
     (xMin, xMax, yMin, yMax) = (otherargs.xMin, otherargs.xMax, otherargs.yMin, otherargs.yMax)
 
-    # Convert to lat/lon
-    p1 = pyproj.Proj(otherargs.proj, preserve_units=True)
-    (LonMin, LatMin) = p1(xMin, yMin, inverse=True)
-    (LonMax, LatMax) = p1(xMax, yMax, inverse=True)
-    print("Extracting DEM for: {:.3f}:{:.3f} {:.3f}:{:.3f}".format(LonMin, LonMax, LatMin, LatMax))
 
     # clip the SRTM1 30m DEM and save it to a temp tif file
+    temp = os.path.join(os.path.dirname(otherargs.file), 'temp.tif')
     tempdem = os.path.join(os.path.dirname(otherargs.file), 'DEM_SRTM.tif')
-    if os.path.exists(tempdem):
-        os.remove(tempdem)
-    # 'left bottom right top' order
-    elevation.clip(bounds=(LonMin, LatMin, LonMax, LatMax), product='SRTM3', output=tempdem)
-    # clean up stale temporary files and fix the cache in the event of a server error
-    elevation.clean()
+    if not os.path.exists(tempdem):
+        # Convert to lat/lon
+        p1 = pyproj.Proj(otherargs.proj, preserve_units=True)
+        (LonMin, LatMin) = p1(xMin, yMin, inverse=True)
+        (LonMax, LatMax) = p1(xMax, yMax, inverse=True)
 
-    # Load temptif into numpy array
+        print("Extracting SRTM DEM for: {:.3f}:{:.3f} {:.3f}:{:.3f}".format(LonMin, LonMax, LatMin, LatMax))
+        # 'left bottom right top' order, buffer to ensure full scene is captured
+        buffer=0.2
+        elevation.clip(bounds=(LonMin-buffer, LatMin-buffer, LonMax+buffer, LatMax+buffer), product='SRTM3', output=temp)
+        # clean up stale temporary files and fix the cache in the event of a server error
+        elevation.clean()
+
+        # reproject to same projection as Landsat
+        sr = osr.SpatialReference(wkt=otherargs.proj)
+        epsg_code = r"{}".format(sr.GetAttrValue('AUTHORITY', 1))
+        print("Projection: {}".format(epsg_code))
+        warp = gdal.Warp(tempdem, temp, dstSRS='EPSG:{}'.format(epsg_code))
+        warp = None  # Closes the files
+        os.remove(temp)
+
+    # Load tempdem into numpy array
     ds = gdal.Open(tempdem, gdal.GA_ReadOnly)
+
+    # Extract geotransform
+    geoTransform = ds.GetGeoTransform()
+
+    # Extract image
     rb = ds.GetRasterBand(1)
     dem = rb.ReadAsArray()
     ds = None
-    #print("{} DEM: {} {}".format(inputs.img.shape,numpy.nanmin(dem), numpy.nanmax(dem)))
 
     # Save in output file
     (xblock, yblock) = info.getBlockCoordArrays()
     img_array = numpy.zeros(xblock.shape)
     img_array[:, :] = -32768
-    #print("{} Geotransform: {}".format(xblock.shape,otherargs.transform))
     # GeoTIFF Geotransform
-    xoff, a, b, yoff, d, e = otherargs.transform
+    #print("{} Geotransform: {}".format(xblock.shape,geoTransform))
+    xoff, a, b, yoff, d, e = geoTransform
     xp = (xblock - xoff) / a
     yp = (yblock - yoff) / e
     # Map array
-    xdim,ydim = img_array.shape
+    ydim,xdim = img_array.shape
     count = 0
-    for i in range(xdim):
-        for j in range(ydim):
-            #print(i,j,xblock[i,j],yblock[i,j],xp[i,j],yp[i,j])
-            xval,yval = int(xp[i,j]),int(yp[i,j])
-            if xval>= 0 and yval >= 0 and xval<xdim and yval<ydim:
-                img_array[i,j] = dem[xval,yval]
+    for i in range(ydim):
+        for j in range(xdim):
+            xval,yval = int(numpy.floor(xp[i,j])),int(numpy.floor(yp[i,j]))
+            if xval>= 0 and yval >= 0 and yval<dem.shape[0] and xval<dem.shape[1]:
+                img_array[i,j] = dem[yval,xval]
                 count += 1
+            #else:
+            #    print(img_array.shape,dem.shape,i,j,yblock[i,j],xblock[i,j],yp[i,j],xp[i,j],yval,xval)
+            #    stop
 
-    print("{} vals DEM: {} {}".format(count,numpy.nanmin(img_array), numpy.nanmax(img_array)))
 
+    #print("{} of {} vals DEM: {} {}\n".format(count,xdim*ydim,numpy.nanmin(img_array), numpy.nanmax(img_array)))
     img_array = numpy.expand_dims(img_array, axis=0)  # convert single layer to 3d array
     outputs.dem = img_array
