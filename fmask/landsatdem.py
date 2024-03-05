@@ -54,6 +54,7 @@ def makeDEMImage(templateimg, outfile, corners, imgInfo):
     otherargs.yMin = imgInfo.yMin
     otherargs.yMax = imgInfo.yMax
     otherargs.proj = imgInfo.projection
+    otherargs.transform = imgInfo.transform
     otherargs.file = templateimg
     controls.setStatsIgnore(500)
 
@@ -74,23 +75,45 @@ def makeDEM(info, inputs, outputs, otherargs):
     p1 = pyproj.Proj(otherargs.proj, preserve_units=True)
     (LonMin, LatMin) = p1(xMin, yMin, inverse=True)
     (LonMax, LatMax) = p1(xMax, yMax, inverse=True)
-    #print("Extracting DEM for: {:.3f}:{:.3f} {:.3f}:{:.3f}".format(LonMin, LonMax, LatMin, LatMax))
+    print("Extracting DEM for: {:.3f}:{:.3f} {:.3f}:{:.3f}".format(LonMin, LonMax, LatMin, LatMax))
 
     # clip the SRTM1 30m DEM and save it to a temp tif file
     tempdem = os.path.join(os.path.dirname(otherargs.file), 'DEM_SRTM.tif')
-    if not os.path.exists(tempdem):
-        # 'left bottom right top' order
-        elevation.clip(bounds=(LonMin, LatMin, LonMax, LatMax), product='SRTM3', output=tempdem)
-        # clean up stale temporary files and fix the cache in the event of a server error
-        elevation.clean()
+    if os.path.exists(tempdem):
+        os.remove(tempdem)
+    # 'left bottom right top' order
+    elevation.clip(bounds=(LonMin, LatMin, LonMax, LatMax), product='SRTM3', output=tempdem)
+    # clean up stale temporary files and fix the cache in the event of a server error
+    elevation.clean()
 
     # Load temptif into numpy array
     ds = gdal.Open(tempdem, gdal.GA_ReadOnly)
     rb = ds.GetRasterBand(1)
-    img_array = rb.ReadAsArray()
-    #print("{} DEM: {} {}".format(inputs.img.shape,numpy.nanmin(img_array), numpy.nanmax(img_array)))
+    dem = rb.ReadAsArray()
+    ds = None
+    #print("{} DEM: {} {}".format(inputs.img.shape,numpy.nanmin(dem), numpy.nanmax(dem)))
 
     # Save in output file
-    img_array = numpy.resize(img_array,(inputs.img.shape[1],inputs.img.shape[2]))
+    (xblock, yblock) = info.getBlockCoordArrays()
+    img_array = numpy.zeros(xblock.shape)
+    img_array[:, :] = -32768
+    #print("{} Geotransform: {}".format(xblock.shape,otherargs.transform))
+    # GeoTIFF Geotransform
+    xoff, a, b, yoff, d, e = otherargs.transform
+    xp = (xblock - xoff) / a
+    yp = (yblock - yoff) / e
+    # Map array
+    xdim,ydim = img_array.shape
+    count = 0
+    for i in range(xdim):
+        for j in range(ydim):
+            #print(i,j,xblock[i,j],yblock[i,j],xp[i,j],yp[i,j])
+            xval,yval = int(xp[i,j]),int(yp[i,j])
+            if xval>= 0 and yval >= 0 and xval<xdim and yval<ydim:
+                img_array[i,j] = dem[xval,yval]
+                count += 1
+
+    print("{} vals DEM: {} {}".format(count,numpy.nanmin(img_array), numpy.nanmax(img_array)))
+
     img_array = numpy.expand_dims(img_array, axis=0)  # convert single layer to 3d array
     outputs.dem = img_array
