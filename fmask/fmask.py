@@ -49,6 +49,7 @@ import os
 import tempfile
 
 import numpy
+import numpy as np
 from osgeo import gdal
 from scipy.ndimage import uniform_filter, maximum_filter, label
 import scipy.stats
@@ -180,7 +181,7 @@ def doFmask(fmaskFilenames, fmaskConfig):
         
     if fmaskConfig.verbose:
         print("Potential shadows")
-    potentialShadowsFile = doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17)
+    potentialShadowsFile = doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17, missingDEM)
     
     if fmaskConfig.verbose:
         print("Clumping clouds")
@@ -361,21 +362,18 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     # An extra step, calculating the slope from the DEM
     slope = numpy.zeros(mask.shape)
     if hasattr(inputs, 'dem'):
-        nodata = -32768
         dem = numpy.zeros(mask.shape)
-        dem[:,:] = inputs.dem[0,:,:]
-        if numpy.nanmax(dem) > nodata:
-            print("{} DEM: {} {}".format(dem.shape, numpy.nanmin(dem), numpy.nanmax(dem)))
-            rda = rd.rdarray(dem, no_data=nodata)
-            # top left x, x resolution, rotations, top left y, rotation, y resolution
-            rda.geotransform = [0., 60., 0., 0., 0., 60.]
-            rd.FillDepressions(rda, in_place=True)
-            slope = rd.TerrainAttribute(rda, attrib='slope_percentage')
-            del rda
-            slope[slope > 100.0] = 100.0
-            slope[slope == -9999.0] = 0.0
-            print("Slope[{}]: {:.3f} {:.3f}".format(slope.shape,numpy.nanmin(slope[slope > nodata]),numpy.nanmax(slope)))
-            del dem
+        dem[:, :] = inputs.dem[0, :, :]
+        retvals = calc_slope(dem)
+
+    # Sometimes calc_slope retuns None, not sure why
+    if retvals is None:
+        print("Slope is None ?")
+        slope = numpy.zeros(mask.shape)
+        del dem
+    else:
+        (slope, aspect) = retvals
+        del dem, aspect
 
     ref = refDNtoUnits(inputs.toaref, fmaskConfig)
     # Clamp off any reflectance <= 0
@@ -426,10 +424,11 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     
     # Equation 5
     ## Added further criteria to prevent the detection of missing data
+    ## Slope less than 10 degrees from Fmask mountainous
     waterTest = numpy.logical_and(numpy.logical_and(numpy.logical_or(
         numpy.logical_and(ndvi < 0.01, ref[nir] < 0.11),
-        numpy.logical_and(ndvi < 0.1, ref[nir] < 0.05)
-    ), meanVis > 0.01), slope < 0.5)
+        numpy.logical_and(ndvi < 0.1, ref[nir] < 0.05)),
+        meanVis > 0.01), slope < 10.)
 
     waterTest[nullmask] = False
     
@@ -493,15 +492,17 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     variabilityProb[nullmask] = 0
     variabilityProbPcnt = numpy.round(variabilityProb * PROB_SCALE)
     variabilityProbPcnt = variabilityProbPcnt.clip(BYTE_MIN, BYTE_MAX).astype(numpy.uint8)
-    
-    # Equation 20
-    # In two parts, in case we are missing thermal
-    snowmask = ((ndsi > 0.15) & (ref[nir] > fmaskConfig.Eqn20NirSnowThresh) &
-        (ref[green] > fmaskConfig.Eqn20GreenSnowThresh))
-    if hasattr(inputs, 'thermal'):
-        snowmask = snowmask & (bt < fmaskConfig.Eqn20ThermThresh)
-    elif fmaskConfig.sensor == config.FMASK_LANDSATMSS: # MSS adjustment
+
+    # MSS adjustment
+    if fmaskConfig.sensor == config.FMASK_LANDSATMSS:
         snowmask = ((ndsi > 0.07) & (ref[swir1] < 0.8) & (waterTest is False))
+    else:
+        # Equation 20
+        # In two parts, in case we are missing thermal
+        snowmask = ((ndsi > 0.15) & (ref[nir] > fmaskConfig.Eqn20NirSnowThresh) &
+            (ref[green] > fmaskConfig.Eqn20GreenSnowThresh))
+        if hasattr(inputs, 'thermal'):
+            snowmask = snowmask & (bt < fmaskConfig.Eqn20ThermThresh)
     snowmask[nullmask] = False
     
     # Output the pcp and water test layers. 
@@ -527,6 +528,26 @@ def accumHist(counts, vals):
     counts += valsHist.astype(counts.dtype)
     return counts
 
+def calc_slope(dem):
+    """
+    Calculate %slope from the supplied DEM
+    """
+    nodata = -32768
+    if numpy.nanmax(dem) > nodata:
+        print("{} DEM: {} to {}".format(dem.shape, numpy.nanmin(dem[dem>nodata]), numpy.nanmax(dem)))
+        rda = rd.rdarray(dem, no_data=nodata)
+        # top left x, x resolution, rotations, top left y, rotation, y resolution
+        rda.geotransform = [0., 60., 0., 0., 0., 60.]
+        rd.FillDepressions(rda, in_place=True)
+        slope = rd.TerrainAttribute(rda, attrib='slope_degrees')
+        aspect = rd.TerrainAttribute(rda, attrib='aspect')
+
+        slope[slope == -9999.0] = 0.0
+        aspect[aspect == -9999.0] = 0.0
+        print("Slope[{}]: {:.3f} to {:.3f} degrees".format(slope.shape,numpy.nanmin(slope[slope > nodata]),numpy.nanmax(slope)))
+        print("Aspect[{}]: {:.3f} to {:.3f} degrees".format(aspect.shape, numpy.nanmin(aspect),numpy.nanmax(aspect)))
+
+        return (slope, aspect)
 
 def scoreatpcnt(counts, pcnt):
     """
@@ -825,7 +846,7 @@ def cloudFinalPass(info, inputs, outputs, otherargs):
     outputs.cloudmask = numpy.array([bufferedCloudmask])
 
 
-def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17):
+def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17, missingDEM):
     """
     Make potential shadow layer, as per section 3.1.3 of Zhu&Woodcock. 
     """
@@ -861,7 +882,40 @@ def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17):
         NIRoffset = fmaskConfig.TOARefDNoffsetDict[config.BAND_NIR]
     scaleVal = fmaskConfig.TOARefScaling
     NIR_17_dn = NIR_17 * scaleVal - NIRoffset
-    
+
+    # An extra step, calculating the slope from the DEM
+    # Then normalise scaledNIR using the cosine of the slope in radians
+    if not missingDEM:
+        dsqa = gdal.Open(fmaskFilenames.dem)
+        dem = dsqa.GetRasterBand(1).ReadAsArray()
+        (slope, aspect) = calc_slope(dem)
+
+        # tell anglesInfo it may need to read data into memory
+        fmaskConfig.anglesInfo.prepareForQuerying()
+
+        iNdx = [0,0,1,1]
+        sunAz = fmaskConfig.anglesInfo.getSolarAzimuthAngle(iNdx)
+        sunZen = fmaskConfig.anglesInfo.getSolarZenithAngle(iNdx)
+
+        print("Angles {} {}".format(sunAz, sunZen))
+
+        # no more querying needed
+        fmaskConfig.anglesInfo.releaseMemory()
+
+        # Remove terrain shadows when high slopes by normalising according to slope
+        ## S.Qiu et al. 2017 - C parameter currently missing from equation
+        print("scaledNIR[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
+                                                           numpy.nanmax(scaledNIR)))
+
+        cosi = ((np.cos(np.radians(slope)) * np.cos(np.radians(np.nanmean(sunZen)))) +
+                (np.sin(np.radians(slope)) * np.sin(np.radians(np.nanmean(sunZen)))
+                * (np.cos(np.nanmean(sunAz - np.radians(aspect))))))
+        scaledNIR = np.int16(scaledNIR * np.cos(np.radians(slope)) *
+                np.cos(np.radians(np.nanmean(sunZen))) * (1.0/cosi))
+        print("scaledNIR normalised[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
+                                                           numpy.nanmax(scaledNIR)))
+        del dsqa, dem, slope, aspect
+
     scaledNIR_filled = fillminima.fillMinima(scaledNIR, nullval, NIR_17_dn)
 
     NIR = singleRefDNtoUnits(scaledNIR, scaleVal, NIRoffset)
@@ -870,7 +924,8 @@ def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17):
     
     # Equation 19
     potentialShadows = ((NIR_filled - NIR) > fmaskConfig.Eqn19NIRFillThresh)
-    
+
+    # Save potential shadow file
     driver = gdal.GetDriverByName(applier.DEFAULTDRIVERNAME)
     creationOptions = applier.dfltDriverOptions[applier.DEFAULTDRIVERNAME]
     outds = driver.Create(potentialShadowsFile, ds.RasterXSize, ds.RasterYSize, 
