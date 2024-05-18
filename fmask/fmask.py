@@ -199,7 +199,7 @@ def doFmask(fmaskFilenames, fmaskConfig):
     
     if fmaskConfig.verbose:
         print("Matching shadows")
-    interimShadowmask = matchShadows(fmaskConfig, interimCloudmask, 
+    interimShadowmask = matchShadows(fmaskConfig, interimCloudmask,
         potentialShadowsFile, shadowShapesDict, cloudBaseTemp, Tlow, Thigh, 
         pass1file)
     
@@ -496,6 +496,8 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
     # MSS adjustment
     if fmaskConfig.sensor == config.FMASK_LANDSATMSS:
         snowmask = ((ndsi > 0.07) & (ref[swir1] < 0.8) & (waterTest is False))
+        # Remove cloud pixels where snow mask is triggered
+        pcp[snowmask] = False
     else:
         # Equation 20
         # In two parts, in case we are missing thermal
@@ -894,10 +896,10 @@ def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17, missingDEM):
         fmaskConfig.anglesInfo.prepareForQuerying()
 
         iNdx = [0,0,1,1]
-        sunAz = fmaskConfig.anglesInfo.getSolarAzimuthAngle(iNdx)
-        sunZen = fmaskConfig.anglesInfo.getSolarZenithAngle(iNdx)
+        sunAz = np.nanmean(fmaskConfig.anglesInfo.getSolarAzimuthAngle(iNdx))
+        sunZen = np.nanmean(fmaskConfig.anglesInfo.getSolarZenithAngle(iNdx))
 
-        print("Angles {} {}".format(sunAz, sunZen))
+        print("Sun Azimuth {:.3f} Zenith {:.3f}".format(np.degrees(sunAz), np.degrees(sunZen)))
 
         # no more querying needed
         fmaskConfig.anglesInfo.releaseMemory()
@@ -907,14 +909,14 @@ def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17, missingDEM):
         print("scaledNIR[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
                                                            numpy.nanmax(scaledNIR)))
 
-        cosi = ((np.cos(np.radians(slope)) * np.cos(np.radians(np.nanmean(sunZen)))) +
-                (np.sin(np.radians(slope)) * np.sin(np.radians(np.nanmean(sunZen)))
-                * (np.cos(np.nanmean(sunAz - np.radians(aspect))))))
-        scaledNIR = np.int16(scaledNIR * np.cos(np.radians(slope)) *
-                np.cos(np.radians(np.nanmean(sunZen))) * (1.0/cosi))
+        cosi = 1.0/abs(np.cos(np.radians(slope)) * np.cos(sunZen)) + (np.sin(np.radians(slope)) * np.sin(sunZen) * (np.cos(sunAz - np.radians(aspect))))
+        scale = np.cos(np.radians(slope)) * np.cos(sunZen) * cosi
+        scaling = scale / np.nanmax(scale)
+        print("scaling[{}]: {} to {}".format(scaling.shape, numpy.nanmin(scaling), numpy.nanmax(scaling)))
+        scaledNIR = np.int16(scaledNIR * scaling)
         print("scaledNIR normalised[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
                                                            numpy.nanmax(scaledNIR)))
-        del dsqa, dem, slope, aspect
+        del dsqa, dem, slope, aspect, cosi, scale, scaling
 
     scaledNIR_filled = fillminima.fillMinima(scaledNIR, nullval, NIR_17_dn)
 
@@ -1262,23 +1264,38 @@ def matchShadows(fmaskConfig, interimCloudmask, potentialShadowsFile,
         else:
             Tcloudbase = 0
 
-        matchedShadowNdx = matchOneShadow(cloudmask, shadowEntry, potentialShadow, Tcloudbase, 
+        (matchedShadowNdx, cldshp) = matchOneShadow(cloudmask, shadowEntry, potentialShadow, Tcloudbase,
             Tlow, Thigh, xRes, yRes, cloudID, nullmask)
         
         if matchedShadowNdx is not None:
             shadowmask[matchedShadowNdx] = True
         else:
             unmatchedCount += 1
+            # Remove clouds where shadows don't exist
+            [r, nrows, c, ncols] = cldshp
+            cloudmask[r:r + nrows, c:c + ncols] = 0
 
     if fmaskConfig.verbose:
         print("No shadow found for %s of %s clouds " % (unmatchedCount, len(cloudIDlist)))
+
+    if unmatchedCount > 0 and fmaskConfig.sensor == config.FMASK_LANDSATMSS: # MSS only
+        # Overwrite cloudmask file, with the unmatched clouds removed
+        driver = gdal.GetDriverByName(applier.DEFAULTDRIVERNAME)
+        creationOptions = applier.dfltDriverOptions[applier.DEFAULTDRIVERNAME]
+        ds = driver.Create(interimCloudmask, xsize, ysize, 1, gdal.GDT_Byte,
+                           creationOptions)
+        ds.SetProjection(proj)
+        ds.SetGeoTransform(geotrans)
+        band = ds.GetRasterBand(1)
+        band.WriteArray(cloudmask)
+        del ds
 
     del potentialShadow, cloudmask, nullmask
     
     # Now apply a 3-pixel buffer, as per section 3.2 (2nd-last paragraph)
     # I have the buffer size settable from the commandline, with our default
     # being larger than the original. 
-    if fmaskConfig.shadowBufferSize > 0:
+    if fmaskConfig.shadowBufferSize > 0:# and fmaskConfig.sensor != config.FMASK_LANDSATMSS:
         kernel = makeBufferKernel(fmaskConfig.shadowBufferSize)
         shadowmaskBuffered = maximum_filter(shadowmask, footprint=kernel)
     else:
@@ -1414,10 +1431,12 @@ def matchOneShadow(cloudmask, shadowEntry, potentialShadow, Tcloudbase, Tlow, Th
         # We accept the match, now save the index for the pixels in the overlap region
         overlapNdx = numpy.where(bestOverlapRegion)
         matchedShadowNdx = (bestRC[0] + overlapNdx[0], bestRC[1] + overlapNdx[1])
+        cldshp = None
     else:
         matchedShadowNdx = None
+        cldshp = [r, nrows, c, ncols]
     
-    return matchedShadowNdx
+    return (matchedShadowNdx, cldshp)
 
 
 def finalizeAll(fmaskFilenames, fmaskConfig, interimCloudmask, interimShadowmask, 
@@ -1441,6 +1460,11 @@ def finalizeAll(fmaskFilenames, fmaskConfig, interimCloudmask, interimShadowmask
     controls.setWindowXsize(RIOS_WINDOW_SIZE)
     controls.setWindowYsize(RIOS_WINDOW_SIZE)
     controls.setOutputDriverName(fmaskConfig.gdalDriverName)
+
+    if fmaskConfig.sensor == config.FMASK_LANDSATMSS:
+        otherargs.mss = True
+    else:
+        otherargs.mss = False
     
     if fmaskConfig.cloudBufferSize > 0:
         otherargs.bufferkernel = makeBufferKernel(fmaskConfig.cloudBufferSize)
@@ -1490,6 +1514,10 @@ def maskAndBuffer(info, inputs, outputs, otherargs):
     # Buffer the cloud
     if hasattr(otherargs, 'bufferkernel'):
         cloud = maximum_filter(cloud, footprint=otherargs.bufferkernel)
+
+        if otherargs.mss:
+            # Reapply snow mask for MSS data
+            cloud[snow] = False
     
     # now convert these masks to
     # 0 - null
