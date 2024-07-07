@@ -56,7 +56,9 @@ def makeDEMImage(templateimg, outfile, corners, imgInfo):
     otherargs.proj = imgInfo.projection
     otherargs.transform = imgInfo.transform
     otherargs.file = templateimg
-    controls.setStatsIgnore(500)
+    nodata = -32768.0
+    controls.setStatsIgnore(nodata)
+    controls.calcStats=False
 
     applier.apply(makeDEM, infiles, outfiles, otherargs, controls=controls)
 
@@ -91,45 +93,53 @@ def makeDEM(info, inputs, outputs, otherargs):
         # reproject to same projection as Landsat
         sr = osr.SpatialReference(wkt=otherargs.proj)
         epsg_code = r"{}".format(sr.GetAttrValue('AUTHORITY', 1))
-        print("Projection: {}".format(epsg_code))
+        print("Output Projection: {}".format(epsg_code))
         warp = gdal.Warp(tempdem, temp, dstSRS='EPSG:{}'.format(epsg_code))
         warp = None  # Closes the files
         os.remove(temp)
 
-    # Load tempdem into numpy array
-    ds = gdal.Open(tempdem, gdal.GA_ReadOnly)
+    if os.path.exists(tempdem):
+        # Load tempdem into numpy array
+        ds = gdal.Open(tempdem, gdal.GA_ReadOnly)
 
-    # Extract geotransform
-    geoTransform = ds.GetGeoTransform()
+        # Extract geotransform
+        geoTransform = ds.GetGeoTransform()
 
-    # Extract image
-    rb = ds.GetRasterBand(1)
-    dem = rb.ReadAsArray()
-    ds = None
+        # Extract image
+        rb = ds.GetRasterBand(1)
+        dem = rb.ReadAsArray()
+        #print("Read DEM: {}".format(dem.shape))
+        ds = None
 
-    # Save in output file
-    (xblock, yblock) = info.getBlockCoordArrays()
-    img_array = numpy.zeros(xblock.shape)
-    img_array[:, :] = -32768
-    # GeoTIFF Geotransform
-    #print("{} Geotransform: {}".format(xblock.shape,geoTransform))
-    xoff, a, b, yoff, d, e = geoTransform
-    xp = (xblock - xoff) / a
-    yp = (yblock - yoff) / e
-    # Map array
-    ydim,xdim = img_array.shape
-    count = 0
-    for i in range(ydim):
-        for j in range(xdim):
-            xval,yval = int(numpy.floor(xp[i,j])),int(numpy.floor(yp[i,j]))
-            if xval>= 0 and yval >= 0 and yval<dem.shape[0] and xval<dem.shape[1]:
-                img_array[i,j] = dem[yval,xval]
-                count += 1
-            #else:
-            #    print(img_array.shape,dem.shape,i,j,yblock[i,j],xblock[i,j],yp[i,j],xp[i,j],yval,xval)
-            #    stop
+        # Save in output file
+        (xblock, yblock) = info.getBlockCoordArrays()
+        img_array = numpy.zeros(xblock.shape)
+        img_array[:, :] = -32768
+        # GeoTIFF Geotransform
+        #print("{} Geotransform: {}".format(xblock.shape,geoTransform))
+        xoff, a, b, yoff, d, e = geoTransform
+        xp = (xblock - xoff) / a
+        yp = (yblock - yoff) / e
+        # Map array
+        ydim,xdim = img_array.shape
+        #print("Output size {}".format(img_array.shape))
+        count = 0
+        for i in range(ydim):
+            for j in range(xdim):
+                xval,yval = int(numpy.floor(xp[i,j])),int(numpy.floor(yp[i,j]))
+                if xval>= 0 and yval >= 0 and yval<dem.shape[0] and xval<dem.shape[1]:
+                    img_array[i,j] = dem[yval,xval]
+                    count += 1
+                #else:
+                #    print(img_array.shape,dem.shape,i,j,yblock[i,j],xblock[i,j],yp[i,j],xp[i,j],yval,xval)
+                #    stop
 
 
-    #print("{} of {} vals DEM: {} {}\n".format(count,xdim*ydim,numpy.nanmin(img_array), numpy.nanmax(img_array)))
-    img_array = numpy.expand_dims(img_array, axis=0)  # convert single layer to 3d array
-    outputs.dem = img_array
+        #print("{} of {} vals DEM: {} {}\n".format(count,xdim*ydim,numpy.nanmin(img_array), numpy.nanmax(img_array)))
+        img_array = numpy.expand_dims(img_array, axis=0)  # convert single layer to 3d array
+        outputs.dem = img_array
+
+    else: # No DEM data
+        img_array = numpy.zeros((6000,6000))
+        img_array[:, :] = -32768
+        outputs.dem = img_array

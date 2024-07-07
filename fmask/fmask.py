@@ -890,34 +890,36 @@ def doPotentialShadows(fmaskFilenames, fmaskConfig, NIR_17, missingDEM):
     if not missingDEM:
         dsqa = gdal.Open(fmaskFilenames.dem)
         dem = dsqa.GetRasterBand(1).ReadAsArray()
-        (slope, aspect) = calc_slope(dem)
+        if np.nanmax(dem) > np.nanmin(dem):
+            (slope, aspect) = calc_slope(dem)
 
-        # tell anglesInfo it may need to read data into memory
-        fmaskConfig.anglesInfo.prepareForQuerying()
+            # tell anglesInfo it may need to read data into memory
+            fmaskConfig.anglesInfo.prepareForQuerying()
 
-        iNdx = [0,0,1,1]
-        sunAz = np.nanmean(fmaskConfig.anglesInfo.getSolarAzimuthAngle(iNdx))
-        sunZen = np.nanmean(fmaskConfig.anglesInfo.getSolarZenithAngle(iNdx))
+            iNdx = [0,0,1,1]
+            sunAz = np.nanmean(fmaskConfig.anglesInfo.getSolarAzimuthAngle(iNdx))
+            sunZen = np.nanmean(fmaskConfig.anglesInfo.getSolarZenithAngle(iNdx))
 
-        print("Sun Azimuth {:.3f} Zenith {:.3f}".format(np.degrees(sunAz), np.degrees(sunZen)))
+            print("Sun Azimuth {:.3f} Zenith {:.3f}".format(np.degrees(sunAz), np.degrees(sunZen)))
 
-        # no more querying needed
-        fmaskConfig.anglesInfo.releaseMemory()
+            # no more querying needed
+            fmaskConfig.anglesInfo.releaseMemory()
 
-        # Remove terrain shadows when high slopes by normalising according to slope
-        ## S.Qiu et al. 2017 - C parameter currently missing from equation
-        print("scaledNIR[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
-                                                           numpy.nanmax(scaledNIR)))
+            # Remove terrain shadows when high slopes by normalising according to slope
+            ## S.Qiu et al. 2017 - C parameter currently missing from equation
+            print("scaledNIR[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
+                                                               numpy.nanmax(scaledNIR)))
 
-        cosi = 1.0/abs(np.cos(np.radians(slope)) * np.cos(sunZen)) + (np.sin(np.radians(slope)) * np.sin(sunZen) * (np.cos(sunAz - np.radians(aspect))))
-        scale = np.cos(np.radians(slope)) * np.cos(sunZen) * cosi
-        scaling = scale / np.nanmax(scale)
-        print("scaling[{}]: {} to {}".format(scaling.shape, numpy.nanmin(scaling), numpy.nanmax(scaling)))
-        scaledNIR = np.int16(scaledNIR * scaling)
-        print("scaledNIR normalised[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
-                                                           numpy.nanmax(scaledNIR)))
-        del dsqa, dem, slope, aspect, cosi, scale, scaling
-
+            cosi = 1.0/abs(np.cos(np.radians(slope)) * np.cos(sunZen)) + (np.sin(np.radians(slope)) * np.sin(sunZen) * (np.cos(sunAz - np.radians(aspect))))
+            scale = np.cos(np.radians(slope)) * np.cos(sunZen) * cosi
+            scaling = scale / np.nanmax(scale)
+            print("scaling[{}]: {} to {}".format(scaling.shape, numpy.nanmin(scaling), numpy.nanmax(scaling)))
+            scaledNIR = np.int16(scaledNIR * scaling)
+            print("scaledNIR normalised[{}]: {} to {}".format(scaledNIR.shape, numpy.nanmin(scaledNIR),
+                                                               numpy.nanmax(scaledNIR)))
+            del dsqa, dem, slope, aspect, cosi, scale, scaling
+        else:
+            print("No valid data in the DEM")
     scaledNIR_filled = fillminima.fillMinima(scaledNIR, nullval, NIR_17_dn)
 
     NIR = singleRefDNtoUnits(scaledNIR, scaleVal, NIRoffset)
