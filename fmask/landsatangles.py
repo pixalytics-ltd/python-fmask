@@ -310,7 +310,7 @@ def sunAnglesForPoints(latDeg, longDeg, hourGMT, jdp):
     return (sunAz, sunZen)
 
 
-def makeAnglesImage(templateimg, outfile, nadirLine, extentSunAngles, satAzimuth, imgInfo):
+def makeAnglesImage(templateimg, outfile, nadirLine, extentSunAngles, satAzimuth, imgInfo, offnadir = 0.0):
     """
     Make a single output image file of the sun and satellite angles for every
     pixel in the template image.
@@ -337,6 +337,7 @@ def makeAnglesImage(templateimg, outfile, nadirLine, extentSunAngles, satAzimuth
     otherargs.satAltitude = 705000      # Landsat nominal altitude in metres
     otherargs.satAzimuth = satAzimuth
     otherargs.radianScale = 100        # Store pixel values as (radians * radianScale)
+    otherargs.offnadir = offnadir
     controls.setStatsIgnore(500)
 
     applier.apply(makeAngles, infiles, outfiles, otherargs, controls=controls)
@@ -358,6 +359,9 @@ def makeAngles(info, inputs, outputs, otherargs):
 
     # Zenith angle assuming a flat earth
     satZenith = numpy.arctan(dist / otherargs.satAltitude)
+
+    # Adjust offnadir
+    satZenith += abs(numpy.deg2rad(otherargs.offnadir))
 
     # Adjust satZenith for earth curvature. This is a very simple approximation, but
     # the adjustment is less than one degree anyway, so this is accurate enough.

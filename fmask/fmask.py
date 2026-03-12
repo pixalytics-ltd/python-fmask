@@ -123,12 +123,16 @@ def doFmask(fmaskFilenames, fmaskConfig):
             if fmaskConfig.verbose:
                 print('Ignoring thermal data since file is empty')
             missingThermal = True
+    else:
+        print("Missing Thermal data {}".format(missingThermal))
 
     # do we have DEM data?
     missingDEM = fmaskFilenames.dem is None
+    missingDEM = True
+    print("Missing DEM {} ".format(missingDEM))
 
     # do some basic checking of inputs
-    if fmaskFilenames.toaRef is None:
+    if fmaskFilenames.toaRef is None or not os.path.exists(fmaskFilenames.toaRef):
         msg = 'Must provide input TOA reflectance file via fmaskFilenames parameter'
         raise fmaskerrors.FmaskParameterError(msg)
         
@@ -161,6 +165,8 @@ def doFmask(fmaskFilenames, fmaskConfig):
     
     if fmaskConfig.verbose:
         print("Cloud layer, pass 1")
+        fmaskFilenames.qaMask = None
+        print("Inputs: ",vars(fmaskFilenames))
     (pass1file, Twater, Tlow, Thigh, NIR_17, nonNullCount) = doPotentialCloudFirstPass(
         fmaskFilenames, fmaskConfig, missingThermal, missingDEM)
     if fmaskConfig.verbose:
@@ -255,8 +261,12 @@ def doPotentialCloudFirstPass(fmaskFilenames, fmaskConfig, missingThermal, missi
     infiles.toaref = fmaskFilenames.toaRef
     if not missingThermal:
         infiles.thermal = fmaskFilenames.thermal
+    elif fmaskConfig.verbose:
+        print('Thermal not supplied')
     if not missingDEM:
         infiles.dem = fmaskFilenames.dem
+    elif fmaskConfig.verbose:
+        print('DEM not supplied')
     if fmaskFilenames.saturationMask is not None:
         infiles.saturationMask = fmaskFilenames.saturationMask
     elif fmaskConfig.verbose:
@@ -359,25 +369,25 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
             inputs.toaref[band,:, :] = tmp[:,:]
         del tmp
         
+    ref = refDNtoUnits(inputs.toaref, fmaskConfig)
+    # Clamp off any reflectance <= 0
+    ref[ref<=0] = 0.00001
+
     # An extra step, calculating the slope from the DEM
-    slope = numpy.zeros(mask.shape)
+    slope = numpy.zeros((ref.shape[1],ref.shape[2]))
     if hasattr(inputs, 'dem'):
         dem = numpy.zeros(mask.shape)
         dem[:, :] = inputs.dem[0, :, :]
         retvals = calc_slope(dem)
 
-    # Sometimes calc_slope retuns None, not sure why
-    if retvals is None:
-        print("Slope is None ?")
-        slope = numpy.zeros(mask.shape)
-        del dem
-    else:
-        (slope, aspect) = retvals
-        del dem, aspect
-
-    ref = refDNtoUnits(inputs.toaref, fmaskConfig)
-    # Clamp off any reflectance <= 0
-    ref[ref<=0] = 0.00001
+        # Sometimes calc_slope retuns None, not sure why
+        if retvals is None:
+            print("Slope is None ?")
+            slope = numpy.zeros(mask.shape)
+            del dem
+        else:
+            (slope, aspect) = retvals
+            del dem, aspect
 
     # Extract the bands we need
     blue = otherargs.refBands[config.BAND_BLUE]
@@ -495,7 +505,10 @@ def potentialCloudFirstPass(info, inputs, outputs, otherargs):
 
     # MSS adjustment
     if fmaskConfig.sensor == config.FMASK_LANDSATMSS:
-        snowmask = ((ndsi > 0.07) & (ref[swir1] < 0.8) & (waterTest is False))
+        if hasattr(inputs, 'dem'):
+            snowmask = ((ndsi > 0.07) & (ref[swir1] < 0.8) & (waterTest is False))
+        else: # For AVNIR
+            snowmask = ((ndsi > 0.15) & (ref[nir] > fmaskConfig.Eqn20NirSnowThresh))
         # Remove cloud pixels where snow mask is triggered
         pcp[snowmask] = False
     else:
