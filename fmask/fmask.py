@@ -71,6 +71,7 @@ from . import fmaskerrors
 from . import zerocheck
 
 numpy.seterr(all='raise')
+gdal.UseExceptions()
 
 # Bands in the saturation mask, if supplied
 SATURATION_BLUE = 0
@@ -769,6 +770,8 @@ def cloudFinalPass(info, inputs, outputs, otherargs):
     # they set a pixel to cloud if 5 or more of its 3x3 neighbours is cloud. 
     # This little incantation will do exactly the same. 
     bufferedCloudmask = (uniform_filter(cloudmask * 2.0, size=3) >= 1.0)
+    # convert to int so we can write it with GDAL
+    bufferedCloudmask = bufferedCloudmask.astype(numpy.uint8)
 
     bufferedCloudmask[nullmask] = 0
     
@@ -1230,10 +1233,10 @@ def matchOneShadow(cloudmask, shadowEntry, potentialShadow, Tcloudbase, Tlow, Th
     Ystep = (Yoff_max - Yoff_min) / numSteps
     
     # shadowTemplate is a rectangle containing just the shadow shape to be shifted
-    row0 = shapeNdx[0].min()
-    rowN = shapeNdx[0].max()
-    col0 = shapeNdx[1].min()
-    colN = shapeNdx[1].max()
+    row0 = int(shapeNdx[0].min())
+    rowN = int(shapeNdx[0].max())
+    col0 = int(shapeNdx[1].min())
+    colN = int(shapeNdx[1].max())
     (nrows, ncols) = ((rowN - row0 + 1), (colN - col0 + 1))
     shadowTemplate = numpy.zeros((nrows, ncols), dtype=bool)
     shadowTemplate[shapeNdx[0] - row0, shapeNdx[1] - col0] = True

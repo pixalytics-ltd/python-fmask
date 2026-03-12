@@ -102,7 +102,7 @@ The command line scripts supplied can process an untarred USGS Landsat scene.
 Here is an example of how to do this. This command will take a given scene directory, 
 find the right images, and create an output file called cloud.img::
 
-    fmask_usgsLandsatStacked.py -o cloud.img --scenedir LC08_L1TP_150033_20150413_20170410_01_T1
+    fmask_usgsLandsatStacked -o cloud.img --scenedir LC08_L1TP_150033_20150413_20170410_01_T1
 
 If the thermal band is empty (for Landsat-8 with the SSM anomaly, after 2015-11-01) then it
 is ignored gracefully.
@@ -125,13 +125,13 @@ slower, and is unlikely to be any more accurate.
 This command will take a given .SAFE directory, find the right images, and create an
 output file called cloud.img::
 
-    fmask_sentinel2Stacked.py -o cloud.img --safedir S2B_MSIL1C_20180918T235239_N0206_R130_T56JNQ_20180919T011001.SAFE
+    fmask_sentinel2Stacked -o cloud.img --safedir S2B_MSIL1C_20180918T235239_N0206_R130_T56JNQ_20180919T011001.SAFE
 
 When working with the old ESA zipfile format, which packed multiple tiles into a single SAFE-format
 zipfile, this approach will not work, as it won't know which tile to process. So, instead, use
 the option to specify the granule directory, as follows::
 
-    fmask_sentinel2Stacked.py -o cloud.img --granuledir S2A_OPER_PRD_MSIL1C_PDMC_20160111T072442_R030_V20160111T000425_20160111T000425.SAFE/GRANULE/S2A_OPER_MSI_L1C_TL_SGS__20160111T051031_A002887_T56JNQ_N02.01
+    fmask_sentinel2Stacked -o cloud.img --granuledir S2A_OPER_PRD_MSIL1C_PDMC_20160111T072442_R030_V20160111T000425_20160111T000425.SAFE/GRANULE/S2A_OPER_MSI_L1C_TL_SGS__20160111T051031_A002887_T56JNQ_N02.01
 
 This would also work on a new-format directory, but specifying the top .SAFE directory is easier. 
 
@@ -151,24 +151,43 @@ corresponds to which wavelength band.
 
 Downloads
 ---------
-Get the source as a bundle from `GitHub <https://github.com/ubarsc/python-fmask/releases>`_.
-Release notes for each version can be read in :doc:`releasenotes`. To install from source,
-read the INSTALL.txt file included inside the source bundle.
+This code relies heavily on GDAL, numpy, scipy and RIOS. These packages must be
+installed for anything to work. For this reason, we recommend that you install using
+a package manager, which will build a complete environment with everything required.
 
-Pre-built binary `Conda <http://conda.pydata.org/miniconda.html#miniconda>`_ packages are available
+Pre-built binary `Conda <https://github.com/conda-forge/miniforge>`_ packages are available
 under the 'conda-forge' channel. Once you have installed
-`Conda <http://conda.pydata.org/miniconda.html#miniconda>`_, run the following commands on the
-command line to install python-fmask: ::
+`Conda <https://github.com/conda-forge/miniforge>`_, run the following commands on the
+command line to install python-fmask::
 
-    conda config --add channels conda-forge
+    conda config --prepend channels conda-forge
     conda config --set channel_priority strict
     conda create -n myenv python-fmask
     conda activate myenv
 
+For those using the `Spack package manager <https://spack.readthedocs.io/>`_,
+python-fmask is also available as::
+
+    spack install py-python-fmask
+
+The source can be downloaded directly as a bundle from
+`GitHub <https://github.com/ubarsc/python-fmask/releases>`_.
+Release notes for each version can be read in :doc:`releasenotes`. To install from source,
+read the INSTALL.txt file included inside the source bundle.
+
+Please note that python-fmask is *not* available from the PyPI repository. This is
+because it depends on the GDAL library, which is also not available there, and must
+be installed by some other means, such as conda. If one is using conda for GDAL, one
+may as well use it for python-fmask, too. While it is technically possible to bundle
+the GDAL binaries into a PyPI distribution, this carries grave risks of version
+conflicts if any other package does the same thing, and is best avoided.
+
 Applications that use python-fmask
 ----------------------------------
 
-* `Cloud Masking <https://smbyc.bitbucket.io/qgisplugins/cloudmasking/>`_: It  is a Qgis plugin for cloud masking the Landsat (4, 5, 7 and 8) products using different process and filters such as Fmask, Blue Band, Cloud QA, Aerosol and Pixel QA.
+* `Cloud Masking <https://github.com/SMByC/CloudMasking>`_: It is a Qgis plugin for cloud masking
+  the Landsat (4, 5, 7 and 8) products using different process and filters such as Fmask, Blue Band,
+  Cloud QA, Aerosol and Pixel QA.
 
 Issues
 ------
